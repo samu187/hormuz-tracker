@@ -1,0 +1,474 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Strait of Hormuz Ship Tracker</title>
+    <script>
+      tailwind = { config: { corePlugins: { preflight: false } } };
+    </script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIINfQigJ3G1V4xVJgz1uH5A6ZL3zc9RkU="
+      crossorigin=""
+    />
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+      }
+
+      body {
+        background: #020617;
+        color: #f8fafc;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+          "Segoe UI", sans-serif;
+      }
+
+      .app-shell {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        height: 100vh;
+        overflow: hidden;
+      }
+
+      .topbar {
+        z-index: 1000;
+        border-bottom: 1px solid #1e293b;
+        background: rgba(2, 6, 23, 0.96);
+        padding: 12px 16px;
+        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.25);
+      }
+
+      .topbar-inner {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        width: 100% !important;
+        max-width: none !important;
+      }
+
+      .title-block {
+        min-width: 240px;
+      }
+
+      .title {
+        margin: 0;
+        font-size: 22px;
+        font-weight: 700;
+        letter-spacing: 0;
+      }
+
+      .subtitle {
+        margin: 4px 0 0;
+        color: #94a3b8;
+        font-size: 15px;
+      }
+
+      .status-row {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 12px;
+        font-size: 15px;
+        max-width: 100%;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+        border-radius: 999px;
+        padding: 8px 14px;
+        font-weight: 700;
+        line-height: 1;
+        white-space: nowrap;
+      }
+
+      .map-wrap {
+        position: relative;
+        min-height: 0;
+      }
+
+      #map {
+        position: absolute;
+        inset: 0;
+        height: 100%;
+        min-height: 360px;
+        background: #0f172a;
+      }
+
+      .leaflet-container {
+        position: relative;
+        overflow: hidden;
+        width: 100%;
+        height: 100%;
+        background: #d8e7ed;
+        outline-offset: 1px;
+      }
+
+      .leaflet-pane,
+      .leaflet-tile,
+      .leaflet-marker-icon,
+      .leaflet-marker-shadow,
+      .leaflet-tile-container,
+      .leaflet-pane > svg,
+      .leaflet-pane > canvas,
+      .leaflet-zoom-box,
+      .leaflet-image-layer,
+      .leaflet-layer {
+        position: absolute;
+        left: 0;
+        top: 0;
+      }
+
+      .leaflet-tile {
+        width: 256px;
+        height: 256px;
+        max-width: none !important;
+        max-height: none !important;
+        user-select: none;
+      }
+
+      .leaflet-container img {
+        max-width: none !important;
+      }
+
+      .leaflet-control {
+        position: relative;
+        z-index: 800;
+        pointer-events: auto;
+      }
+
+      .leaflet-top,
+      .leaflet-bottom {
+        position: absolute;
+        z-index: 1000;
+        pointer-events: none;
+      }
+
+      .leaflet-top {
+        top: 0;
+      }
+
+      .leaflet-bottom {
+        bottom: 0;
+      }
+
+      .leaflet-left {
+        left: 0;
+      }
+
+      .leaflet-right {
+        right: 0;
+      }
+
+      .leaflet-control-container .leaflet-top.leaflet-left {
+        margin: 10px;
+      }
+
+      .ship-marker {
+        width: 34px;
+        height: 34px;
+      }
+
+      .ship-marker svg {
+        filter: drop-shadow(0 3px 5px rgba(15, 23, 42, 0.35));
+        transform-origin: 17px 17px;
+      }
+
+      .leaflet-popup-content-wrapper {
+        border-radius: 8px;
+      }
+
+      @media (max-width: 720px) {
+        .title {
+          font-size: 18px;
+        }
+
+        .subtitle,
+        .status-row {
+          font-size: 13px;
+        }
+
+        .status-pill {
+          padding: 7px 10px;
+        }
+      }
+    </style>
+  </head>
+  <body class="bg-slate-950 text-slate-100">
+    <main class="app-shell grid h-full grid-rows-[auto_1fr]">
+      <header class="topbar z-10 border-b border-slate-800 bg-slate-950/95 px-4 py-3 shadow-lg">
+        <div class="topbar-inner mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-3">
+          <div class="title-block">
+            <h1 id="pageTitle" class="title text-lg font-semibold tracking-wide">Strait of Hormuz Live AIS Tracker</h1>
+            <p id="regionSubtitle" class="subtitle text-sm text-slate-400">Geofenced to [[[25.5, 55.0], [27.5, 57.5]]]</p>
+          </div>
+          <div class="status-row flex flex-wrap items-center gap-3 text-sm">
+            <span id="connectionBadge" class="status-pill rounded-full bg-amber-500/15 px-3 py-1 font-medium text-amber-200">
+              Connecting
+            </span>
+            <span class="status-pill rounded-full bg-cyan-500/15 px-3 py-1 font-medium text-cyan-200">
+              Active ships: <span id="shipCount">0</span>
+            </span>
+            <span class="status-pill rounded-full bg-slate-800 px-3 py-1 text-slate-300">
+              Positions: <span id="positionCount">0</span>
+            </span>
+            <span class="status-pill rounded-full bg-slate-800 px-3 py-1 text-slate-300">
+              Stream: <span id="streamStatus">Waiting</span>
+            </span>
+          </div>
+        </div>
+      </header>
+
+      <section class="map-wrap relative min-h-0">
+        <div id="map" class="absolute inset-0"></div>
+      </section>
+    </main>
+
+    <script>
+      const HORMUZ_CENTER = [26.5, 56.3];
+      const HORMUZ_BOUNDS = [
+        [25.5, 55.0],
+        [27.5, 57.5],
+      ];
+      const STALE_AFTER_MS = 30 * 60 * 1000;
+
+      const ships = new Map();
+      const pageTitle = document.getElementById("pageTitle");
+      const regionSubtitle = document.getElementById("regionSubtitle");
+      const shipCount = document.getElementById("shipCount");
+      const positionCount = document.getElementById("positionCount");
+      const streamStatus = document.getElementById("streamStatus");
+      const connectionBadge = document.getElementById("connectionBadge");
+
+      const map = L.map("map", {
+        preferCanvas: true,
+        zoomControl: true,
+      }).setView(HORMUZ_CENTER, 8);
+
+      const baseMap = L.tileLayer("https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png", {
+        maxZoom: 18,
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      }).addTo(map);
+
+      const nauticalOverlay = L.tileLayer("https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png", {
+        maxZoom: 18,
+        opacity: 0.85,
+        attribution: '&copy; <a href="https://www.openseamap.org">OpenSeaMap</a>',
+      }).addTo(map);
+
+      L.control
+        .layers(
+          { "Clean maritime base": baseMap },
+          { "Nautical seamarks": nauticalOverlay },
+          { collapsed: true }
+        )
+        .addTo(map);
+
+      const geofenceLayer = L.rectangle(HORMUZ_BOUNDS, {
+        color: "#22d3ee",
+        weight: 2,
+        fillColor: "#0891b2",
+        fillOpacity: 0.07,
+      })
+        .addTo(map)
+        .bindPopup("AIS subscription geofence: Strait of Hormuz");
+
+      async function loadRegionConfig() {
+        try {
+          const response = await fetch("/config", { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`Config request failed: ${response.status}`);
+          }
+
+          const config = await response.json();
+          const bounds = config.boundingBoxes?.[0] ?? HORMUZ_BOUNDS;
+          pageTitle.textContent = config.title ?? "Live AIS Tracker";
+          regionSubtitle.textContent = `Backend geofence: ${JSON.stringify(config.boundingBoxes)}`;
+          map.setView(config.center ?? HORMUZ_CENTER, config.zoom ?? 8);
+          geofenceLayer.setBounds(bounds);
+          geofenceLayer.bindPopup(`AIS subscription geofence: ${config.name ?? "Active region"}`);
+        } catch (error) {
+          console.warn("Using default map config", error);
+        }
+      }
+
+      function setConnectionState(state, detail) {
+        const states = {
+          connected: "bg-emerald-500/15 text-emerald-200",
+          connecting: "bg-amber-500/15 text-amber-200",
+          disconnected: "bg-rose-500/15 text-rose-200",
+        };
+        connectionBadge.className = `status-pill rounded-full px-3 py-1 font-medium ${states[state]}`;
+        connectionBadge.textContent = detail;
+      }
+
+      function formatNumber(value, decimals = 1) {
+        return Number.isFinite(value) ? value.toFixed(decimals) : "Unknown";
+      }
+
+      function formatTimestamp(value) {
+        if (!value) {
+          return "Waiting";
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+          return String(value);
+        }
+
+        return date.toLocaleTimeString();
+      }
+
+      function escapeHtml(value) {
+        return String(value ?? "Unknown")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#039;");
+      }
+
+      function createShipIcon(heading) {
+        const rotation = Number.isFinite(heading) ? heading : 0;
+        return L.divIcon({
+          className: "ship-marker",
+          iconSize: [34, 34],
+          iconAnchor: [17, 17],
+          popupAnchor: [0, -14],
+          html: `
+            <svg viewBox="0 0 34 34" style="transform: rotate(${rotation}deg)" aria-hidden="true">
+              <path d="M17 2 L28 30 L17 24 L6 30 Z" fill="#06b6d4" stroke="#ecfeff" stroke-width="2" />
+              <circle cx="17" cy="16" r="3" fill="#0f172a" opacity="0.85" />
+            </svg>
+          `,
+        });
+      }
+
+      function popupHtml(ship) {
+        return `
+          <div class="min-w-48">
+            <div class="mb-2 text-base font-semibold text-slate-900">${escapeHtml(ship.name)}</div>
+            <div class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+              <span class="font-medium text-slate-600">MMSI</span><span>${escapeHtml(ship.mmsi)}</span>
+              <span class="font-medium text-slate-600">Speed</span><span>${formatNumber(ship.sog)} kn</span>
+              <span class="font-medium text-slate-600">Heading</span><span>${formatNumber(ship.heading, 0)} deg</span>
+              <span class="font-medium text-slate-600">Timestamp</span><span>${escapeHtml(ship.timestamp)}</span>
+            </div>
+          </div>
+        `;
+      }
+
+      function upsertShip(ship) {
+        const id = String(ship.mmsi);
+        const latLng = [ship.lat, ship.lon];
+        const existing = ships.get(id);
+
+        if (existing) {
+          existing.data = ship;
+          existing.updatedAt = Date.now();
+          existing.marker.setLatLng(latLng);
+          existing.marker.setIcon(createShipIcon(ship.heading));
+          existing.marker.setPopupContent(popupHtml(ship));
+        } else {
+          const marker = L.marker(latLng, { icon: createShipIcon(ship.heading) })
+            .addTo(map)
+            .bindPopup(popupHtml(ship));
+          ships.set(id, { marker, data: ship, updatedAt: Date.now() });
+        }
+
+        shipCount.textContent = ships.size;
+        streamStatus.textContent = formatTimestamp(ship.timestamp);
+      }
+
+      function updateAisStatus(status) {
+        if (status.connected) {
+          setConnectionState("connected", "Live");
+        } else if (status.lastError) {
+          setConnectionState("disconnected", "AIS error");
+        }
+
+        positionCount.textContent = status.acceptedPositions ?? 0;
+        if (status.lastShipPositionAt) {
+          streamStatus.textContent = formatTimestamp(status.lastShipPositionAt);
+        } else if (status.lastRawMessageAt) {
+          streamStatus.textContent = `Raw ${status.rawMessages ?? 0}, no positions yet`;
+        } else if (status.connected) {
+          streamStatus.textContent = "AIS live, no data yet";
+        } else if (status.lastError) {
+          streamStatus.textContent = status.lastError;
+        } else {
+          streamStatus.textContent = "Waiting";
+        }
+      }
+
+      function removeStaleShips() {
+        const cutoff = Date.now() - STALE_AFTER_MS;
+        for (const [mmsi, ship] of ships.entries()) {
+          if (ship.updatedAt < cutoff) {
+            map.removeLayer(ship.marker);
+            ships.delete(mmsi);
+          }
+        }
+        shipCount.textContent = ships.size;
+      }
+
+      function connectWebSocket() {
+        const protocol = window.location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(`${protocol}://${window.location.host}/ws/ships`);
+
+        setConnectionState("connecting", "Connecting");
+
+        ws.addEventListener("open", () => {
+          setConnectionState("connected", "Live");
+        });
+
+        ws.addEventListener("message", (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            if (payload.type === "ship_position") {
+              upsertShip(payload);
+            } else if (payload.type === "ais_status") {
+              updateAisStatus(payload);
+            }
+          } catch (error) {
+            console.warn("Discarding invalid ship update", error);
+          }
+        });
+
+        ws.addEventListener("close", () => {
+          setConnectionState("disconnected", "Reconnecting");
+          window.setTimeout(connectWebSocket, 2500);
+        });
+
+        ws.addEventListener("error", () => {
+          ws.close();
+        });
+      }
+
+      window.setInterval(removeStaleShips, 60_000);
+      loadRegionConfig();
+      connectWebSocket();
+    </script>
+  </body>
+</html>
