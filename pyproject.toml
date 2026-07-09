@@ -13,7 +13,6 @@ dependencies = [
 
 [project.scripts]
 hormuz-tracker = "main:run"
-hormuz-tracker-dev = "main:run_dev"
 
 [build-system]
 requires = ["setuptools>=69"]

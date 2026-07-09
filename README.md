@@ -21,11 +21,6 @@ Real-time AIS ship-tracking web app for monitoring maritime traffic around the S
 - AIS_DIAGNOSTIC_ALL_MESSAGE_TYPES=false
 
 ## Run
-Development mode: 
-
-uv run hormuz-tracker-dev 
-
-Production-style local mode: 
 
 uv run hormuz-tracker
 

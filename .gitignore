@@ -1,5 +1,7 @@
 .env
 .venv
 __pycache__/
+hormuz_tracker.egg-info/
 *.pyc
 .DS_Store
+
