@@ -13,12 +13,12 @@ Real-time AIS ship-tracking web app for monitoring maritime traffic around the S
 
 ## Setup
 
-uv sync
-Create .env:
-AIS_API_KEY=your_aisstream_api_key
-AIS_REGION=hormuz
-AIS_DIAGNOSTIC_GLOBAL_BBOX=false
-AIS_DIAGNOSTIC_ALL_MESSAGE_TYPES=false
+- uv sync
+- Create .env:
+- AIS_API_KEY=your_aisstream_api_key
+- AIS_REGION=hormuz
+- AIS_DIAGNOSTIC_GLOBAL_BBOX=false
+- AIS_DIAGNOSTIC_ALL_MESSAGE_TYPES=false
 
 ## Run
 Development mode:
