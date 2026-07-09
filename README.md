@@ -22,23 +22,35 @@ Real-time AIS ship-tracking web app for monitoring maritime traffic around the S
 
 ## Run
 Development mode: 
+
 uv run hormuz-tracker-dev 
+
 Production-style local mode: 
+
 uv run hormuz-tracker
 
 Open: 
+
 http://127.0.0.1:8000
 
 Regions 
+
 Set AIS_REGION in .env: 
+
 AIS_REGION=hormuz
 
+
 Available test regions include: 
+
 AIS_REGION=gulf_oman_hormuz 
+
 AIS_REGION=sicily
 
 ## Global CLI Install 
 uv tool install -e . 
+
 hormuz-tracker 
+
 Uninstall: 
+
 uv tool uninstall hormuz-tracker
