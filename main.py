@@ -3,6 +3,8 @@ import json
 import logging
 import os
 import ssl
+import threading
+import webbrowser
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,7 +14,7 @@ import certifi
 import uvicorn
 import websockets
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import Body, FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from websockets.exceptions import ConnectionClosed
@@ -33,18 +35,90 @@ REGIONS: dict[str, dict[str, Any]] = {
     },
     "sicily": {
         "id": "sicily",
-        "name": "Sicily Coast Test Area",
-        "title": "Sicily Coast AIS Test",
+        "name": "Sicily and Central Mediterranean",
+        "title": "Sicily Live AIS Tracker",
         "boundingBoxes": [[[36.0, 11.5], [39.0, 16.5]]],
         "center": [37.5, 14.0],
         "zoom": 7,
     },
-    "gulf_oman_hormuz": {
-        "id": "gulf_oman_hormuz",
-        "name": "Gulf of Oman and Strait of Hormuz",
-        "title": "Gulf of Oman and Hormuz AIS Test",
-        "boundingBoxes": [[[23.5, 54.0], [28.5, 60.5]]],
-        "center": [26.0, 57.2],
+    "oman": {
+        "id": "oman",
+        "name": "Gulf of Oman",
+        "title": "Gulf of Oman Live AIS Tracker",
+        "boundingBoxes": [[[22.0, 56.0], [26.5, 61.0]]],
+        "center": [24.3, 58.7],
+        "zoom": 7,
+    },
+    "london": {
+        "id": "london",
+        "name": "London and Thames Estuary",
+        "title": "London Thames Live AIS Tracker",
+        "boundingBoxes": [[[51.2, -0.8], [51.8, 1.6]]],
+        "center": [51.5, 0.25],
+        "zoom": 9,
+    },
+    "gibraltar": {
+        "id": "gibraltar",
+        "name": "Gibraltar Strait",
+        "title": "Gibraltar Strait Live AIS Tracker",
+        "boundingBoxes": [[[35.7, -6.4], [36.4, -4.8]]],
+        "center": [36.05, -5.6],
+        "zoom": 9,
+    },
+    "iceland": {
+        "id": "iceland",
+        "name": "Iceland Coastal Waters",
+        "title": "Iceland Live AIS Tracker",
+        "boundingBoxes": [[[63.0, -25.0], [67.2, -12.0]]],
+        "center": [64.9, -18.6],
+        "zoom": 6,
+    },
+    "black_sea": {
+        "id": "black_sea",
+        "name": "Black Sea",
+        "title": "Black Sea Live AIS Tracker",
+        "boundingBoxes": [[[41.0, 27.0], [47.5, 42.5]]],
+        "center": [44.2, 34.8],
+        "zoom": 7,
+    },
+    "crimea": {
+        "id": "crimea",
+        "name": "Crimea and Kerch Strait",
+        "title": "Crimea and Kerch Strait Live AIS Tracker",
+        "boundingBoxes": [[[44.0, 32.0], [46.5, 37.5]]],
+        "center": [45.2, 35.1],
+        "zoom": 8,
+    },
+    "singapore": {
+        "id": "singapore",
+        "name": "Singapore Strait",
+        "title": "Singapore Strait Live AIS Tracker",
+        "boundingBoxes": [[[1.0, 103.4], [1.6, 104.4]]],
+        "center": [1.28, 103.9],
+        "zoom": 10,
+    },
+    "suez": {
+        "id": "suez",
+        "name": "Suez Canal",
+        "title": "Suez Canal Live AIS Tracker",
+        "boundingBoxes": [[[29.7, 32.1], [31.4, 32.7]]],
+        "center": [30.55, 32.35],
+        "zoom": 8,
+    },
+    "panama": {
+        "id": "panama",
+        "name": "Panama Canal",
+        "title": "Panama Canal Live AIS Tracker",
+        "boundingBoxes": [[[8.8, -80.2], [9.5, -79.4]]],
+        "center": [9.15, -79.8],
+        "zoom": 9,
+    },
+    "english_channel": {
+        "id": "english_channel",
+        "name": "English Channel",
+        "title": "English Channel Live AIS Tracker",
+        "boundingBoxes": [[[49.3, -5.8], [51.7, 2.0]]],
+        "center": [50.5, -1.9],
         "zoom": 7,
     },
 }
@@ -69,6 +143,7 @@ stream_stats: dict[str, Any] = {
     "lastError": None,
 }
 discard_reason_counts: dict[str, int] = {}
+current_region_id = "hormuz"
 
 
 def _utc_now() -> str:
@@ -76,15 +151,10 @@ def _utc_now() -> str:
 
 
 def active_region() -> dict[str, Any]:
-    region_id = os.getenv("AIS_REGION", "hormuz").strip().lower()
-    if region_id not in REGIONS:
-        logger.warning("Unknown AIS_REGION=%r; falling back to hormuz", region_id)
-        region_id = "hormuz"
-    return REGIONS[region_id]
+    return REGIONS[current_region_id]
 
 
-def active_region_payload() -> dict[str, Any]:
-    region = active_region()
+def region_payload(region: dict[str, Any]) -> dict[str, Any]:
     return {
         "id": region["id"],
         "name": region["name"],
@@ -93,6 +163,30 @@ def active_region_payload() -> dict[str, Any]:
         "center": region["center"],
         "zoom": region["zoom"],
     }
+
+
+def active_region_payload() -> dict[str, Any]:
+    return region_payload(active_region())
+
+
+def available_regions_payload() -> list[dict[str, Any]]:
+    return [region_payload(region) for region in REGIONS.values()]
+
+
+def reset_stream_stats() -> None:
+    stream_stats.update(
+        {
+            "connected": False,
+            "rawMessages": 0,
+            "acceptedPositions": 0,
+            "discardedMessages": 0,
+            "lastRawMessageAt": None,
+            "lastShipPositionAt": None,
+            "lastError": None,
+            "subscription": None,
+        }
+    )
+    discard_reason_counts.clear()
 
 
 def _point_in_bounding_boxes(
@@ -414,6 +508,25 @@ async def aisstream_client(stop_event: asyncio.Event) -> None:
         reconnect_delay = min(reconnect_delay * 2, 60.0)
 
 
+async def restart_aisstream(app: FastAPI) -> None:
+    old_stop_event: asyncio.Event | None = getattr(app.state, "stop_event", None)
+    old_upstream_task: asyncio.Task | None = getattr(app.state, "upstream_task", None)
+
+    if old_stop_event is not None:
+        old_stop_event.set()
+    if old_upstream_task is not None:
+        old_upstream_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await old_upstream_task
+
+    reset_stream_stats()
+    stop_event = asyncio.Event()
+    upstream_task = asyncio.create_task(aisstream_client(stop_event), name="aisstream-client")
+    app.state.stop_event = stop_event
+    app.state.upstream_task = upstream_task
+    await manager.broadcast(stream_status_payload())
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     stop_event = asyncio.Event()
@@ -425,10 +538,12 @@ async def lifespan(app: FastAPI):
         yield
     finally:
         logger.info("Shutting down Hormuz tracker")
-        stop_event.set()
-        upstream_task.cancel()
+        current_stop_event: asyncio.Event = getattr(app.state, "stop_event", stop_event)
+        current_upstream_task: asyncio.Task = getattr(app.state, "upstream_task", upstream_task)
+        current_stop_event.set()
+        current_upstream_task.cancel()
         with suppress(asyncio.CancelledError):
-            await upstream_task
+            await current_upstream_task
 
 
 app = FastAPI(title="Strait of Hormuz Ship Tracker", lifespan=lifespan)
@@ -460,6 +575,38 @@ async def config() -> JSONResponse:
     return JSONResponse(active_region_payload())
 
 
+@app.get("/regions")
+async def regions() -> JSONResponse:
+    return JSONResponse(
+        {
+            "activeRegion": active_region_payload(),
+            "regions": available_regions_payload(),
+        }
+    )
+
+
+@app.post("/region")
+async def set_region(
+    request: Request,
+    payload: dict[str, Any] = Body(...),
+) -> JSONResponse:
+    global current_region_id
+
+    region_id = str(payload.get("region") or payload.get("id") or "").strip().lower()
+    if region_id not in REGIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown region {region_id!r}. Use one of: {', '.join(REGIONS)}",
+        )
+
+    if region_id != current_region_id:
+        logger.info("Switching active AIS region from %s to %s", current_region_id, region_id)
+        current_region_id = region_id
+        await restart_aisstream(request.app)
+
+    return JSONResponse(active_region_payload())
+
+
 @app.websocket("/ws/ships")
 async def ships_websocket(websocket: WebSocket) -> None:
     await manager.connect(websocket)
@@ -474,10 +621,18 @@ async def ships_websocket(websocket: WebSocket) -> None:
 
 
 def run() -> None:
+    host = os.getenv("HOST", "127.0.0.1")
+    port = int(os.getenv("PORT", "8000"))
+    browser_host = "127.0.0.1" if host in {"0.0.0.0", "::"} else host
+    url = f"http://{browser_host}:{port}"
+
+    if os.getenv("OPEN_BROWSER", "true").strip().lower() not in {"0", "false", "no", "off"}:
+        threading.Timer(1.0, lambda: webbrowser.open(url)).start()
+
     uvicorn.run(
         "main:app",
-        host=os.getenv("HOST", "127.0.0.1"),
-        port=int(os.getenv("PORT", "8000")),
+        host=host,
+        port=port,
     )
 
 

@@ -16,7 +16,6 @@ Real-time AIS ship-tracking web app for monitoring maritime traffic around the S
 - uv sync
 - Create .env:
 - AIS_API_KEY=your_aisstream_api_key
-- AIS_REGION=hormuz
 - AIS_DIAGNOSTIC_GLOBAL_BBOX=false
 - AIS_DIAGNOSTIC_ALL_MESSAGE_TYPES=false
 
@@ -24,22 +23,32 @@ Real-time AIS ship-tracking web app for monitoring maritime traffic around the S
 
 uv run hormuz-tracker
 
-Open: 
+The command starts FastAPI and opens the app in your default browser:
 
 http://127.0.0.1:8000
 
-Regions 
+To start the server without opening a browser:
 
-Set AIS_REGION in .env: 
+OPEN_BROWSER=false uv run hormuz-tracker
 
-AIS_REGION=hormuz
+## Regions
 
+The app starts with the Strait of Hormuz by default. Change region from the dropdown in the frontend; the backend reconnects to aisstream.io using the selected region's bounding box, then the frontend recenters the map and redraws the geofence.
 
-Available test regions include: 
+Available regions:
 
-AIS_REGION=gulf_oman_hormuz 
-
-AIS_REGION=sicily
+- Strait of Hormuz
+- Sicily and Central Mediterranean
+- Gulf of Oman
+- London and Thames Estuary
+- Gibraltar Strait
+- Iceland Coastal Waters
+- Black Sea
+- Crimea and Kerch Strait
+- Singapore Strait
+- Suez Canal
+- Panama Canal
+- English Channel
 
 ## Global CLI Install 
 uv tool install -e . 

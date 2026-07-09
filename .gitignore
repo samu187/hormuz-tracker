@@ -2,6 +2,7 @@
 .venv
 __pycache__/
 hormuz_tracker.egg-info/
+.uv-cache/
 *.pyc
 .DS_Store
 

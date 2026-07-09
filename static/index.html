@@ -91,6 +91,17 @@
         max-width: 100%;
       }
 
+      .region-select {
+        border: 1px solid #334155;
+        border-radius: 8px;
+        background: #0f172a;
+        color: #f8fafc;
+        padding: 8px 34px 8px 12px;
+        font: inherit;
+        font-weight: 650;
+        min-width: 210px;
+      }
+
       .status-pill {
         display: inline-flex;
         align-items: center;
@@ -223,6 +234,12 @@
             <p id="regionSubtitle" class="subtitle text-sm text-slate-400">Geofenced to [[[25.5, 55.0], [27.5, 57.5]]]</p>
           </div>
           <div class="status-row flex flex-wrap items-center gap-3 text-sm">
+            <label>
+              <span class="sr-only">AIS region</span>
+              <select id="regionSelect" class="region-select">
+                <option value="hormuz">Strait of Hormuz</option>
+              </select>
+            </label>
             <span id="connectionBadge" class="status-pill rounded-full bg-amber-500/15 px-3 py-1 font-medium text-amber-200">
               Connecting
             </span>
@@ -253,12 +270,14 @@
       const STALE_AFTER_MS = 30 * 60 * 1000;
 
       const ships = new Map();
+      let activeRegionId = "hormuz";
       const pageTitle = document.getElementById("pageTitle");
       const regionSubtitle = document.getElementById("regionSubtitle");
       const shipCount = document.getElementById("shipCount");
       const positionCount = document.getElementById("positionCount");
       const streamStatus = document.getElementById("streamStatus");
       const connectionBadge = document.getElementById("connectionBadge");
+      const regionSelect = document.getElementById("regionSelect");
 
       const map = L.map("map", {
         preferCanvas: true,
@@ -294,6 +313,23 @@
         .addTo(map)
         .bindPopup("AIS subscription geofence: Strait of Hormuz");
 
+      function applyRegionConfig(config, { recenter = false } = {}) {
+        const bounds = config.boundingBoxes?.[0] ?? HORMUZ_BOUNDS;
+        pageTitle.textContent = config.title ?? "Live AIS Tracker";
+        regionSubtitle.textContent = `Backend geofence: ${JSON.stringify(config.boundingBoxes)}`;
+        if (recenter) {
+          map.setView(config.center ?? HORMUZ_CENTER, config.zoom ?? 8);
+        }
+        geofenceLayer.setBounds(bounds);
+        geofenceLayer.bindPopup(`AIS subscription geofence: ${config.name ?? "Active region"}`);
+        if (config.id && regionSelect.value !== config.id) {
+          regionSelect.value = config.id;
+        }
+        if (config.id) {
+          activeRegionId = config.id;
+        }
+      }
+
       async function loadRegionConfig() {
         try {
           const response = await fetch("/config", { cache: "no-store" });
@@ -302,14 +338,31 @@
           }
 
           const config = await response.json();
-          const bounds = config.boundingBoxes?.[0] ?? HORMUZ_BOUNDS;
-          pageTitle.textContent = config.title ?? "Live AIS Tracker";
-          regionSubtitle.textContent = `Backend geofence: ${JSON.stringify(config.boundingBoxes)}`;
-          map.setView(config.center ?? HORMUZ_CENTER, config.zoom ?? 8);
-          geofenceLayer.setBounds(bounds);
-          geofenceLayer.bindPopup(`AIS subscription geofence: ${config.name ?? "Active region"}`);
+          applyRegionConfig(config, { recenter: true });
         } catch (error) {
           console.warn("Using default map config", error);
+        }
+      }
+
+      async function loadRegions() {
+        try {
+          const response = await fetch("/regions", { cache: "no-store" });
+          if (!response.ok) {
+            throw new Error(`Regions request failed: ${response.status}`);
+          }
+
+          const payload = await response.json();
+          regionSelect.replaceChildren(
+            ...payload.regions.map((region) => {
+              const option = document.createElement("option");
+              option.value = region.id;
+              option.textContent = region.name;
+              return option;
+            })
+          );
+          applyRegionConfig(payload.activeRegion, { recenter: true });
+        } catch (error) {
+          console.warn("Unable to load region list", error);
         }
       }
 
@@ -401,7 +454,22 @@
         streamStatus.textContent = formatTimestamp(ship.timestamp);
       }
 
+      function clearShips() {
+        for (const ship of ships.values()) {
+          map.removeLayer(ship.marker);
+        }
+        ships.clear();
+        shipCount.textContent = "0";
+        positionCount.textContent = "0";
+        streamStatus.textContent = "Waiting";
+      }
+
       function updateAisStatus(status) {
+        if (status.region) {
+          const regionChanged = status.region.id && status.region.id !== activeRegionId;
+          applyRegionConfig(status.region, { recenter: regionChanged });
+        }
+
         if (status.connected) {
           setConnectionState("connected", "Live");
         } else if (status.lastError) {
@@ -452,9 +520,9 @@
               updateAisStatus(payload);
             }
           } catch (error) {
-            console.warn("Discarding invalid ship update", error);
-          }
-        });
+          console.warn("Discarding invalid ship update", error);
+        }
+      });
 
         ws.addEventListener("close", () => {
           setConnectionState("disconnected", "Reconnecting");
@@ -467,7 +535,34 @@
       }
 
       window.setInterval(removeStaleShips, 60_000);
-      loadRegionConfig();
+      regionSelect.addEventListener("change", async () => {
+        const nextRegion = regionSelect.value;
+        regionSelect.disabled = true;
+        clearShips();
+        setConnectionState("connecting", "Switching region");
+
+        try {
+          const response = await fetch("/region", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ region: nextRegion }),
+          });
+          if (!response.ok) {
+            throw new Error(`Region switch failed: ${response.status}`);
+          }
+
+          const config = await response.json();
+          applyRegionConfig(config, { recenter: true });
+        } catch (error) {
+          console.warn("Unable to switch region", error);
+          setConnectionState("disconnected", "Region error");
+          await loadRegionConfig();
+        } finally {
+          regionSelect.disabled = false;
+        }
+      });
+
+      loadRegions();
       connectWebSocket();
     </script>
   </body>
